@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AEC Site Conditions & Microclimate Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6 font-sans">
+  <div class="max-w-5xl mx-auto">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-700 pb-4 mb-6 gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-amber-400">AEC Site Safety & Microclimate Monitor</h1>
+        <p class="text-sm text-slate-400">Live Crane Operation & Concrete Curing Conditions (Open-Meteo API)</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <select id="siteSelect" class="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm">
+          <option value="25.0330,121.5654">Site A: Xinyi District Tower</option>
+          <option value="24.9889,121.5715">Site B: Wenshan Campus Project</option>
+          <option value="25.0478,121.5170">Site C: Taipei Main Station Hub</option>
+        </select>
+        <button id="refreshBtn" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold px-4 py-2 rounded text-sm transition">
+          Refresh Data
+        </button>
+      </div>
+    </header>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Current Temperature</p>
+        <p id="tempVal" class="text-3xl font-bold mt-1">-- °C</p>
+        <p id="curingNote" class="text-xs text-emerald-400 mt-2">Fetching status...</p>
+      </div>
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Wind Speed (10m)</p>
+        <p id="windVal" class="text-3xl font-bold mt-1">-- km/h</p>
+        <p id="craneNote" class="text-xs text-emerald-400 mt-2">Fetching status...</p>
+      </div>
+      <div class="bg-slate-800 p-5 rounded-lg border border-slate-700">
+        <p class="text-xs uppercase tracking-wider text-slate-400">Precipitation</p>
+        <p id="rainVal" class="text-3xl font-bold mt-1">-- mm</p>
+        <p id="apiTimestamp" class="text-xs text-slate-400 mt-2">Last updated: --</p>
+      </div>
+    </div>
+
+    <!-- Chart Visualization -->
+    <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+      <h2 class="text-lg font-semibold mb-4">24-Hour Site Forecast (Temperature & Wind Speed)</h2>
+      <canvas id="weatherChart" height="100"></canvas>
+    </div>
+  </div>
+
+  <script>
+    let chartInstance = null;
+
+    async function fetchSiteData() {
+      const coords = document.getElementById('siteSelect').value.split(',');
+      const lat = coords[0];
+      const lon = coords[1];
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,precipitation,wind_speed_10m&hourly=temperature_2m,wind_speed_10m&forecast_days=1`;
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        // Update KPI Cards
+        const temp = data.current.temperature_2m;
+        const wind = data.current.wind_speed_10m;
+        const rain = data.current.precipitation;
+
+        document.getElementById('tempVal').textContent = `${temp} °C`;
+        document.getElementById('windVal').textContent = `${wind} km/h`;
+        document.getElementById('rainVal').textContent = `${rain} mm`;
+        document.getElementById('apiTimestamp').textContent = `API Time: ${data.current.time.replace('T', ' ')}`;
+
+        // AEC Safety Logic
+        const craneEl = document.getElementById('craneNote');
+        if (wind > 35) {
+          craneEl.textContent = "WARNING: High wind — Suspend tower crane lifts";
+          craneEl.className = "text-xs text-rose-400 mt-2 font-semibold";
+        } else {
+          craneEl.textContent = "SAFE: Wind within normal crane operating limits";
+          craneEl.className = "text-xs text-emerald-400 mt-2";
+        }
+
+        const curingEl = document.getElementById('curingNote');
+        if (temp < 10 || temp > 35) {
+          curingEl.textContent = "ALERT: Extreme temp — Adjust concrete curing mix";
+          curingEl.className = "text-xs text-amber-400 mt-2 font-semibold";
+        } else {
+          curingEl.textContent = "OPTIMAL: Standard concrete curing conditions";
+          curingEl.className = "text-xs text-emerald-400 mt-2";
+        }
+
+        // Render Chart
+        const labels = data.hourly.time.map(t => t.split('T')[1]);
+        const temps = data.hourly.temperature_2m;
+        const winds = data.hourly.wind_speed_10m;
+
+        if (chartInstance) chartInstance.destroy();
+
+        const ctx = document.getElementById('weatherChart').getContext('2d');
+        chartInstance = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'Temperature (°C)',
+                data: temps,
+                borderColor: '#fbbf24',
+                backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                yAxisID: 'y',
+                tension: 0.3
+              },
+              {
+                label: 'Wind Speed (km/h)',
+                data: winds,
+                borderColor: '#38bdf8',
+                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                yAxisID: 'y1',
+                tension: 0.3
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+              y: { type: 'linear', position: 'left', ticks: { color: '#fbbf24' }, grid: { color: '#334155' } },
+              y1: { type: 'linear', position: 'right', ticks: { color: '#38bdf8' }, grid: { drawOnChartArea: false } }
+            },
+            plugins: { legend: { labels: { color: '#f8fafc' } } }
+          }
+        });
+      } catch (err) {
+        alert("Failed to fetch API data: " + err.message);
+      }
+    }
+
+    document.getElementById('siteSelect').addEventListener('change', fetchSiteData);
+    document.getElementById('refreshBtn').addEventListener('click', fetchSiteData);
+    window.addEventListener('DOMContentLoaded', fetchSiteData);
+  </script>
+</body>
+</html>
